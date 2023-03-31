@@ -5,6 +5,34 @@ export function isErrorEvent(object: any): object is ErrorEvent {
   return "error" in object;
 }
 
+export function* compileRows(
+  mergedRows: Record<number, Record<any, any>>,
+  createEntity: () => Record<any, any>
+): Generator<Object> {
+  const rows = Object.values(mergedRows);
+
+  if (rows.length === 0) {
+    return;
+  }
+
+  for (const row of rows) {
+    const entity = createEntity();
+
+    for (const [property, value] of Object.entries(entity)) {
+      if (typeof value === "function") {
+        // repeat process
+        entity[property] = [...compileRows(row[property], value)];
+      } else if (typeof value === "object") {
+        entity[property] = compileRows(row[property], () => value).next().value;
+      } else {
+        entity[property] = row[property];
+      }
+    }
+
+    yield entity;
+  }
+}
+
 export function mergeRows(
   rows: Record<string, any>,
   row: Record<string, any>

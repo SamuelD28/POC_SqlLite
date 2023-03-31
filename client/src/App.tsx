@@ -7,6 +7,7 @@ import _ from "lodash";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "./App.css";
 import {
+  compileRows,
   convertRowToObject,
   convertToObjects,
   mergeRows,
@@ -92,12 +93,29 @@ function App() {
 
   const insertProductsAsync = async () => {
     setIsLoading(true);
+
+    const storeIds: number[] = [];
+    await each(
+      `
+        SELECT *
+        FROM Stores
+      `,
+      (row: any) => {
+        const store = convertRowToObject<Store>(row);
+        storeIds.push(store.id);
+      }
+    );
+
     for (let i = 0; i < 50000; i++) {
       const productName = faker.commerce.product();
       const productDescription = faker.commerce.productDescription();
       await query(
-        `INSERT INTO Products([Name], [Description]) VALUES($name, $description)`,
-        { $name: productName, $description: productDescription }
+        `INSERT INTO Products([Name], [Description], [StoreId]) VALUES($name, $description, $storeId)`,
+        {
+          $name: productName,
+          $description: productDescription,
+          $storeId: faker.helpers.arrayElement(storeIds),
+        }
       );
     }
     setIsLoading(false);
@@ -113,18 +131,6 @@ function App() {
 
   const refreshCount = async () => {
     let mergedRows: Record<string, any> = {};
-    await each(
-      `
-        SELECT S.*, P.Id as [Product_Id], P.Name as [Product_Name]
-        FROM Stores AS S
-        LEFT JOIN Products AS P ON P.StoreId = S.Id
-      `,
-      (row: any) => {
-        const rowObject = convertRowToObject(row);
-        mergeRows(mergedRows, rowObject);
-      }
-    );
-    console.log(mergedRows);
 
     const { results } = await query(`SELECT COUNT(*) AS [Count] FROM Products`);
     const counts = results
@@ -134,8 +140,8 @@ function App() {
   };
 
   const refreshData = async () => {
-    const productsQuery: Product[] = [];
-    await query(
+    const mergedRows: Record<number, any> = {};
+    await each(
       `
       SELECT P.*, S.Id as [Store_Id], S.Company as [Store_Company], S.Address as [Store_Address] 
       FROM Products AS P
@@ -144,25 +150,31 @@ function App() {
       ORDER BY Id desc
       LIMIT $limit
       `,
+      (row) => {
+        const productRow = convertRowToObject(row);
+        mergeRows(mergedRows, productRow);
+      },
       { $search: value, $limit: limit }
     );
 
-    // await each(
-    //   `
-    //   SELECT Products., Stores.*
-    //   FROM Products
-    //   LEFT JOIN Stores ON Stores.Id = Products.StoreId
-    //   WHERE [Name] LIKE '%'|| $search ||'%' OR [Description] LIKE '%' || $search || '%'
-    //   ORDER BY Id desc
-    //   LIMIT $limit
-    //   `,
-    //   (row) => {
-    //     console.log(row);
-    //   },
-    //   { $search: value, $limit: limit }
-    // );
+    const products: any[] = [
+      ...compileRows(
+        mergedRows,
+        () =>
+          ({
+            id: -1,
+            description: "",
+            name: "",
+            store: {
+              id: -1,
+              address: "",
+              company: "",
+            },
+          } as Product)
+      ),
+    ];
 
-    setProducts(productsQuery);
+    setProducts(products);
   };
 
   const refresh = () => {
